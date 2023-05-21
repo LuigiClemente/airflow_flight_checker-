@@ -1,116 +1,72 @@
 ```mermaid
-graph LR
-    A["initial_task: Set environment variables"] --> B["check_flights_and_weather_task: Check flights and weather conditions"]
-    B --> C["assess_fault_condition_task: Assess fault condition"]
-    C --> D["activate_campaign_or_ticket_task: Activate campaign or ticket"]
-    D --> E["discord_notification_task: Send notification to Discord"]
+graph TD
+    A(Discord Setup Task) --> B(Flight Checking Task)
+    B --> C{Weather Fault Validation Task}
+    C --> D(Ticketing/Campaign Activation Task)
+    C -.-> E(Placeholder)
+    D -.-> E
+    style A fill:#FFD700, stroke:#000, stroke-width:2px
+    style B fill:#87CEEB, stroke:#000, stroke-width:2px
+    style C fill:#90EE90, stroke:#000, stroke-width:2px
+    style D fill:#FFA07A, stroke:#000, stroke-width:2px
+    style E fill:#D3D3D3, stroke:#000, stroke-width:2px, stroke-dasharray: 5 5
 ```
 
-### 1\. Discord Integration and Environment Variable Updates
+Task 1: Setting up the Job on Discord using the ENV File Form
+-------------------------------------------------------------
 
-The flight checker application utilizes Discord for seamless communication between admin users and the automation system. Discord is used specifically for setting up environment variables by allowing admin users to modify parameters through HTML forms.
+In this task, you will setup the environment in Discord using the HTML form. The form will allow you to input values for the environment variables in the `.env` file.
 
-Admin users interact with the flight checker application in Discord chat, where they have access to user-friendly HTML forms. These forms enable them to update the necessary environment variables by submitting the desired values.
+Task 2: Flight Checking
+-----------------------
 
-### 2\. Flight Checking and Delay Identification
+This task involves setting up the system to check flight statuses based on the configured interval in the `.env` file. The system will monitor the flights for the airlines and airports configured in the `.env` file and notify you about flight status.
 
-The flight checker continuously monitors flight statuses for specified airports and airlines. The primary objective is to identify delayed flights in a timely manner to manage travel arrangements effectively and minimize disruptions.
+Task 3: Weather Fault Validation
+--------------------------------
 
-When a flight delay is detected, the flight checker performs thorough validations to ensure the accuracy of the information. It cross-references data from the flight information API and conducts additional checks to confirm the delay.
+This task involves validating the weather conditions. The system will check the weather for the airports configured in the `.env` file and determine if the conditions match the non-fault weather conditions specified in the `.env` file. If there is a match, it will notify you.
 
-### 3\. Fault Assessment and Risk Mitigation
+Task 4: Ticketing or Campaign Activation
+----------------------------------------
 
-Upon confirming a flight delay, the flight checker performs comprehensive fault assessments. These assessments aim to identify potential issues, evaluate associated risks, and determine appropriate courses of action.
+This is the final task. Depending on the results of the flight checking and weather fault validation tasks, this task will either create a ticket in Zammad or activate a campaign in List Monk. The details for Zammad and List Monk are configured in the `.env` file.
 
-The flight checker leverages various data sources, including weather APIs such as [WeatherAPI](https://www.weatherapi.com/docs/), to assess the impact of external factors on flight delays. By considering weather conditions, historical trends, and other relevant information, the system can make informed decisions regarding fault mitigation strategies.
+Each task depends on the configuration in the `.env` file and can be updated by updating the environment variables. All tasks will make use of the same `.env` file provided. Be sure to replace `YOUR_ZAMMAD_URL`, `YOUR_ZAMMAD_TOKEN`, `YOUR_LIST_MONK_URL`, `YOUR_LIST_MONK_TOKEN`, and `YOUR_DISCORD_BOT_TOKEN` with your actual values.
 
-### 4\. Ticket Creation or Campaign Activation
-
-Following the fault assessment, the flight checker initiates the creation of tickets or the activation of campaigns. It utilizes APIs such as [ListMonk API](https://listmonk.app/docs/apis/campaigns/) and [Zammad API](https://docs.zammad.org/en/latest/api/ticket/index.html) to generate tickets for affected passengers or activate campaigns for communication purposes.
-
-Creating tickets or activating campaigns allows the flight checker to proactively engage with passengers, providing them with relevant information, alternative options, or necessary assistance based on the specific situation.
-
-### 5\. Weather Data Integration
-
-To enhance the accuracy of flight delay assessments, the flight checker integrates real-time weather data from weather APIs such as [WeatherAPI](https://www.weatherapi.com/docs/). By retrieving weather information for relevant airport locations, the system considers weather conditions as a factor when evaluating flight delays.
-
-Weather data, including parameters like temperature, wind speed, precipitation, and cloud cover, is taken into account alongside flight information to make more informed decisions and provide accurate notifications to stakeholders.
-
-### 6\. Apache Airflow Orchestration
-
-The flight checker application is orchestrated using Apache Airflow, a powerful workflow management platform. Airflow schedules and executes tasks within the flight checking workflow based on the defined DAG (Directed Acyclic Graph).
-
-Tasks in the workflow include flight checking, fault assessment, ticket creation or campaign activation, weather data integration, and sending notifications. Airflow ensures the timely execution of these tasks according to the specified schedule and dependencies.
-
-By utilizing Apache Airflow, the flight checker achieves robust task orchestration, enabling efficient and automated monitoring of flights, fault assessment, seamless coordination among different components, and reliable scheduling.
-
-In conclusion, the flight checker application leverages Discord for environment variable updates, monitors flight delays, assesses faults and risks, creates tickets or activates campaigns, integrates weather data, and utilizes Apache Airflow for efficient task orchestration. The system integrates APIs such as [ListMonk API](https://listmonk.app/docs/apis/campaigns/), [Zammad API](https://docs.zammad.org/en/latest/api/ticket/index.html), [DiscordWebhookOperator](https://airflow.apache.org/docs/apache-airflow-providers-discord/stable/_api/airflow/providers/discord/operators/discord_webhook/index.html), and [WeatherAPI](https://www.weatherapi.com/docs/) to perform these functions effectively.
+* * *
 
 
+Code Explained
+-------------------------------------------------------------
 
 
-
-### Code Explained 
-
-1.  The code begins by importing the required modules:
+1.  Importing Required Modules: The script begins by importing necessary modules from various libraries, including `os`, `requests`, `json`, `datetime`, `timedelta`, `dotenv`, `airflow`, and specific operators from the `airflow.providers.discord.operators` package.
     
-    *   `os`: Provides a way to interact with the operating system.
-    *   `requests`: Enables making HTTP requests to retrieve flight information.
-    *   `json`: Allows working with JSON data.
-    *   `datetime` and `timedelta` from the `datetime` module: Facilitates working with dates and times.
-    *   `load_dotenv` from the `dotenv` module: Loads environment variables from a `.env` file.
-    *   `DAG` from the `airflow` module: Represents the Directed Acyclic Graph (DAG) that defines the workflow.
-    *   `PythonOperator` from the `airflow.operators.python_operator` module: Executes Python callables as tasks in the DAG.
-    *   `DiscordWebhookOperator` from the `airflow.providers.discord.operators.discord_webhook` module: Sends notifications to a Discord channel.
-2.  The code loads environment variables from the `.env` file using `load_dotenv()`.
+2.  Loading Environment Variables: The `load_dotenv()` function is called to load environment variables from the `.env` file. This file contains configurations for various aspects of the flight checking system.
     
-3.  It retrieves the Discord webhook URL from the environment variable `DISCORD_WEBHOOK_URL`.
+3.  Discord Webhook URL: The Discord webhook URL is retrieved from the environment variable `DISCORD_WEBHOOK_URL`.
     
-4.  The code defines a class called `FlightChecker`, which encapsulates the functionality related to flight checking. It has the following attributes and methods:
+4.  FlightChecker Class: A `FlightChecker` class is defined to handle flight checking operations. It has an initializer method (`__init__`) that loads environment variables related to flights, airports, airlines, intervals, thresholds, and weather conditions.
     
-    *   Attributes:
-        *   `api_key`: Stores the API key for accessing flight information.
-        *   `airports`: Stores a list of airports to check flights for.
-        *   `airlines`: Stores a list of airlines to check flights for.
-        *   `check_interval`: Specifies the interval (in minutes) at which flights should be checked.
-        *   `delay_threshold`: Specifies the minimum delay threshold (in minutes) for considering a flight as delayed.
-        *   `time_to_departure_threshold`: Specifies the minimum time threshold (in hours) before departure to consider a flight for delay checks.
-        *   `cancelled_flight_time_window_start`: Specifies the start time (in minutes) within which a flight can be considered cancelled.
-        *   `cancelled_flight_time_window_end`: Specifies the end time (in minutes) within which a flight can be considered cancelled.
-        *   `api_host`: Stores the host URL for the flight information API.
-        *   `api_endpoint`: Stores the endpoint for the flight information API.
-        *   `api_url`: Stores the complete URL for accessing the flight information API.
-        *   `env_weather`: Stores the weather environment variable (currently unused).
-        *   `airport_hours`: Stores the opening and closing hours for each airport.
-        *   `last_delay_print_time`: Stores the last delay print time for each airport.
-    *   Methods:
-        *   `get_flight_info(airport: str, airline: str)`: Sends a request to the flight information API and returns the flight information as JSON.
-        *   `check_flights(airport: str, airline: str)`: Checks flight statuses for a specific airport and airline, prints delays and cancellations, and performs notifications and fault assessment.
-5.  An instance of the `FlightChecker` class called `flight_checker` is created.
+5.  FlightChecker Methods: The `FlightChecker` class defines several methods:
     
-6.  The code defines default arguments for the tasks in the DAG. These arguments include the start date, number of retries, and retry delay.
+    *   `get_flight_info`: Sends a request to the flights API to retrieve flight information for a specific airport and airline.
+    *   `check_flights`: Checks the flights for a given airport and airline, considering opening and closing hours. If a flight is delayed or canceled within specific criteria, it prints the status and calls the `notify_plugin` method.
+    *   `notify_plugin`: Placeholder method for notifying a plugin about flight status. The implementation depends on specific requirements.
+6.  Initializing the FlightChecker: An instance of the `FlightChecker` class is created named `flight_checker`.
     
-7.  The DAG (Directed Acyclic Graph) is initialized with the name `'flight_checker'` and the provided default arguments. It also includes a description, a schedule interval of one minute, and `catchup` set to `False` (i.e., tasks won't be triggered for the missed schedule intervals).
+7.  Defining Default Arguments for the DAG: A dictionary named `default_args` is defined to specify default arguments for the tasks in the DAG. These arguments include the start date, number of retries, and retry delay.
     
-8.  The code defines a callable function called `initial_task_callable()`. This function is responsible for listening to the admin and setting environment variables accordingly. However, the function itself is not implemented in the provided code.
+8.  Initializing the DAG: The `DAG` object is initialized with the name `'flight_checker'` and the provided `default_args`. Other parameters include the description, schedule interval, and catchup settings.
     
-9.  A `PythonOperator` called `initial_task` is defined, which executes the `initial_task_callable()` function as a task in the DAG.
+9.  Task 1: Discord Setup Task: A `PythonOperator` named `discord_setup_task` is created. It prints a message indicating that the job is being set up on Discord. This task is responsible for setting up the environment on Discord using an HTML form.
     
-10.  Another callable function called `check_flights_and_weather_conditions_callable()` is defined. This function iterates through the airports and airlines, calls the `check_flights()` method of the `flight_checker` instance, and retrieves weather data (currently commented out).
+10.  Task 2: Flight Checking Task: A `PythonOperator` named `flight_checking_task` is created. It invokes the `check_flights` method of the `flight_checker` instance for each combination of airports and airlines configured. This task monitors flight statuses based on the configured interval and notifies about delays or cancellations.
     
-11.  A `PythonOperator` called `check_flights_and_weather_task` is defined, which executes the `check_flights_and_weather_conditions_callable()` function as a task in the DAG.
+11.  Task 3: Weather Fault Validation Task: A `PythonOperator` named `weather_fault_validation_task` is created. It simply prints a message indicating that weather faults are being checked. This task is a placeholder and needs to be replaced with the actual implementation for validating weather conditions.
     
-12.  Another callable function called `assess_fault_condition_callable()` is defined. This function iterates through the airports and airlines, calls the `check_flights()` method of the `flight_checker` instance, retrieves weather data (currently commented out), and assesses fault conditions (currently commented out).
+12.  Task 4: Ticketing or Campaign Activation Task: A `PythonOperator` named `ticketing_or_campaign_activation_task` is created. It prints a message indicating that a campaign or ticketing is being activated. This task is a placeholder and needs to be replaced with the actual implementation for creating a ticket in Zammad or activating a campaign in List Monk.
     
-13.  A `PythonOperator` called `assess_fault_condition_task` is defined, which executes the `assess_fault_condition_callable()` function as a task in the DAG.
-    
-14.  A callable function called `activate_campaign_or_ticket_callable()` is defined. The actual code for this function is not provided in the given code snippet.
-    
-15.  A `PythonOperator` called `activate_campaign_or_ticket_task` is defined, which executes the `activate_campaign_or_ticket_callable()` function as a task in the DAG.
-    
-16.  A `DiscordWebhookOperator` called `discord_notification_task` is defined. It sends a notification to a Discord channel using the webhook URL provided.
-    
-17.  The dependencies between the tasks in the DAG are defined using the `>>` operator, which represents the order of execution.
-    
-18.  Finally, the complete DAG is ready and can be scheduled and executed by an Apache Airflow scheduler. The DAG consists of tasks for initializing environment variables, checking flights and weather conditions, assessing fault conditions, activating campaigns or creating tickets, and sending a Discord notification when all tasks are completed successfully.
+13.  Defining Dependencies: Dependencies between the tasks are defined using the `>>` operator. The execution flow starts with the `discord_setup_task`, followed by `flight_checking_task`, `weather_fault_validation_task`, and finally `ticketing_or_campaign_activation_task`.
     
