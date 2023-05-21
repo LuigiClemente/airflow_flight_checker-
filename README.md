@@ -2,15 +2,15 @@
 graph TD
     A(Discord Setup Task) --> B(Flight Checking Task)
     B --> C{Weather Fault Validation Task}
-    C --> D(Ticketing/Campaign Activation Task)
-    C -.-> E(Placeholder)
-    D -.-> E
+    C -->|Condition Met| D(Campaign Activation Task)
+    C -.->|Condition Not Met| E[Ticketing Task]
     style A fill:#FFD700, stroke:#000, stroke-width:2px
     style B fill:#87CEEB, stroke:#000, stroke-width:2px
-    style C fill:#90EE90, stroke:#000, stroke-width:2px
-    style D fill:#FFA07A, stroke:#000, stroke-width:2px
-    style E fill:#D3D3D3, stroke:#000, stroke-width:2px, stroke-dasharray: 5 5
+    style C fill:#FFA500, stroke:#000, stroke-width:2px
+    style D fill:#90EE90, stroke:#000, stroke-width:2px
+    style E fill:#FF0000, stroke:#000, stroke-width:2px
 ```
+
 
 Task 1: Setting up the Job on Discord using the ENV File Form
 -------------------------------------------------------------
