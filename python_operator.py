@@ -26,7 +26,7 @@ class FlightChecker:
         self.api_host = os.getenv("API_HOST")
         self.api_endpoint = os.getenv("API_ENDPOINT")
         self.env_weather = os.getenv("ENV_WEATHER").split(",")
-        
+
         # Define opening and closing hours for each airport
         self.airport_hours = {
             "BCN": (6, 23),
@@ -37,11 +37,19 @@ class FlightChecker:
 
     def get_flight_info(self, airport: str, airline: str = ""):
         # Construct the URL with query parameters
-        url = f"{self.api_host}/{self.api_endpoint}?dep_iata={airport}&api_key={self.api_key}"
+        url = f"{self.api_host}/api/v9/{self.api_endpoint}?dep_iata={airport}&api_key={self.api_key}"
         if airline:
             url += f"&airline={airline}"
 
-        response = requests.get(url)
+        print(f"Final URL is -> {url}")
+
+        #payload = {'dep_iata' : 'BCN', 'api_key' : '5ae65766-97cd-4c28-9c01-284f43966b10'}
+
+        response = requests.get(url) #, headers = payload)
+
+        print(f'Response in JSON -> {response.json()}')
+
+        print(f"Status Code for response is -> {response.status_code}")
 
         if response.status_code != 200:
             raise Exception(f"Request failed with status {response.status_code}")
@@ -60,20 +68,25 @@ class FlightChecker:
             else:
                 flight_infos = [info for airline in self.airlines for info in self.get_flight_info(airport, airline)]
             for flight_info in flight_infos:
-                dep_time = datetime.strptime(flight_info["dep_time"], "%Y-%m-%d %H:%M")
-                dep_delayed = int(flight_info["dep_delayed"])
-                status = flight_info["status"]
-                if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(hours=self.time_to_departure_threshold):
-                    print(f"Flight {flight_info['flight_iata']} is delayed.")
-                    self.last_delay_print_time[airport] = datetime.now()
-                    self.notify_plugin("Delayed", flight_info)
+                print(type(flight_info))
+                print(flight_info)
+                if "dep_time" in flight_info and "dep_delayed" in flight_info and "status" in flight_info:
+                    dep_time = datetime.strptime(flight_info["dep_time"], "%Y-%m-%d %H:%M")
+                    dep_delayed = int(flight_info["dep_delayed"])
+                    status = flight_info["status"]
+                    if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(hours=self.time_to_departure_threshold):
+                        print(f"Flight {flight_info['flight_iata']} is delayed.")
+                        self.last_delay_print_time[airport] = datetime.now()
+                        self.notify_plugin("Delayed", flight_info)
 
-                # Only acknowledge a cancelled flight if a delay has been printed for the same airport
-                if airport in self.last_delay_print_time:
-                    time_since_last_delay = (datetime.now() - self.last_delay_print_time[airport]).total_seconds() / 60
-                    if status == "cancelled" and self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
-                        print(f"Flight {flight_info['flight_iata']} is cancelled.")
-                        self.notify_plugin("Cancelled", flight_info)
+                    # Only acknowledge a cancelled flight if a delay has been printed for the same airport
+                    if airport in self.last_delay_print_time:
+                        time_since_last_delay = (datetime.now() - self.last_delay_print_time[airport]).total_seconds() / 60
+                        if status == "cancelled" and self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
+                            print(f"Flight {flight_info['flight_iata']} is cancelled.")
+                            self.notify_plugin("Cancelled", flight_info)
+                else:
+                    print(f"Missing key(s) in flight info for flight {flight_info.get('flight_iata', 'unknown')}. Skipping...")
 
     def notify_plugin(self, status, flight_info):
         # Method to notify a plugin, its implementation depends on your specific needs.
@@ -98,50 +111,17 @@ dag = DAG(
     catchup=False
 )
 
-def discord_setup():
-    print("Setting up the job on Discord...")
-    api_url = os.getenv("API_URL")
-    print(f"API_URL: {api_url}")
-
 def check_flights():
     for airport in flight_checker.airports:
         flight_checker.check_flights(airport)
 
-def check_weather_faults():
-    print("Checking weather faults...")
-
-def activate_campaign_or_ticketing():
-    print("Activating campaign or ticketing...")
-
-# Task 1: Setting up the Job on Discord using the ENV File Form
-discord_setup_task = PythonOperator(
-    task_id='discord_setup_task',
-    python_callable=discord_setup,
-    dag=dag,
-)
-
-# Task 2: Flight Checking
+# Task: Flight Checking
 flight_checking_task = PythonOperator(
     task_id='flight_checking_task',
     python_callable=check_flights,
     dag=dag,
 )
 
-# Task 3: Weather Fault Validation
-weather_fault_validation_task = PythonOperator(
-    task_id='weather_fault_validation_task',
-    python_callable=check_weather_faults,
-    dag=dag,
-)
-
-# Task 4: Ticketing or Campaign Activation
-ticketing_or_campaign_activation_task = PythonOperator(
-    task_id='ticketing_or_campaign_activation_task',
-    python_callable=activate_campaign_or_ticketing,
-    dag=dag,
-)
-
 # Define the dependencies between the tasks in the DAG
-discord_setup_task >> flight_checking_task >> weather_fault_validation_task >> ticketing_or_campaign_activation_task
-
+flight_checking_task
 
