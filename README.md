@@ -49,11 +49,13 @@ Code Explained
     
 4.  FlightChecker Class: A `FlightChecker` class is defined to handle flight checking operations. It has an initializer method (`__init__`) that loads environment variables related to flights, airports, airlines, intervals, thresholds, and weather conditions.
     
-5.  FlightChecker Methods: The `FlightChecker` class defines several methods:
+5.  FlightChecker Methods: The `FlightChecker` class defines two methods:
     
-    *   `get_flight_info`: Sends a request to the flights API to retrieve flight information for a specific airport and airline.
-    *   `check_flights`: Checks the flights for a given airport and airline, considering opening and closing hours. If a flight is delayed or canceled within specific criteria, it prints the status and calls the `notify_plugin` method.
+    *   `check_flights`: Checks the flights for a given airport, considering the opening and closing hours. If a flight is delayed or canceled within specific criteria, it prints the status and calls the `notify_plugin` method.
+        
+    *   `notify_plugin`: This method is a placeholder for notifying a plugin or external system about the flight status. The implementation of this method depends on your specific needs and can be customized accordingly.
     *   `notify_plugin`: Placeholder method for notifying a plugin about flight status. The implementation depends on specific requirements.
+
 6.  Initializing the FlightChecker: An instance of the `FlightChecker` class is created named `flight_checker`.
     
 7.  Defining Default Arguments for the DAG: A dictionary named `default_args` is defined to specify default arguments for the tasks in the DAG. These arguments include the start date, number of retries, and retry delay.
