@@ -6,56 +6,59 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
-from airflow.providers.discord.operators.discord_webhook import DiscordWebhookOperator
 
 # Load environment variables from the .env file
 load_dotenv()
 
-# Get discord webhook url from environment variable
-discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-
 class FlightChecker:
     def __init__(self):
-        # Load environment variables from the .env file
-        load_dotenv()
-
-        # Retrieve the necessary variables from environment
-        # These include the API key, airports, airlines, API host, etc.
+        # Retrieve the necessary variables from the environment
         self.api_key = os.getenv("FLIGHTS_API_KEY")
         self.airports = os.getenv("AIRPORTS").split(",")
-        self.airlines = os.getenv("AIRLINES").split(",")
-        self.check_interval = int(os.getenv("CHECK_INTERVAL")) * 60
-        self.delay_threshold = int(os.getenv("DELAY_THRESHOLD"))
-        self.time_to_departure_threshold = int(os.getenv("TIME_TO_DEPARTURE_THRESHOLD"))
-        self.cancelled_flight_time_window_start = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_START"))
-        self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END"))
+        self.airlines = os.getenv("AIRLINES")
+        if self.airlines != "all":
+            self.airlines = self.airlines.split(",")
+        self.check_interval = int(os.getenv("CHECK_INTERVAL", "60")) * 60
+        self.delay_threshold = int(os.getenv("DELAY_THRESHOLD", "0"))
+        self.time_to_departure_threshold = int(os.getenv("TIME_TO_DEPARTURE_THRESHOLD", "0"))
+        self.cancelled_flight_time_window_start = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_START", "0"))
+        self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END", "0"))
         self.api_host = os.getenv("API_HOST")
         self.api_endpoint = os.getenv("API_ENDPOINT")
         self.env_weather = os.getenv("ENV_WEATHER").split(",")
-
+        
         # Define opening and closing hours for each airport
         self.airport_hours = {
-            "MIA": (int(os.getenv("MIA_OPENING_HOUR")), int(os.getenv("MIA_CLOSING_HOUR"))),
-            "LAX": (int(os.getenv("LAX_OPENING_HOUR")), int(os.getenv("LAX_CLOSING_HOUR"))),
+            "BCN": (6, 23),
+            "AMS": (3, 23)
         }
 
         self.last_delay_print_time = {}  # Stores the last delay print time for each airport
 
-    def get_flight_info(self, airport: str, airline: str):
-        params = {
-            "api_key": self.api_key,
-            "dep_iata": airport,
-            "airline_iata": airline,
-            "_fields": "flight_iata,flight_number,dep_time,dep_estimated,dep_actual,dep_delayed,status"
-        }
-        response = requests.get(f"{self.api_host}/{self.api_endpoint}", params=params)
-        return response.json()
+    def get_flight_info(self, airport: str, airline: str = ""):
+        # Construct the URL with query parameters
+        url = f"{self.api_host}/{self.api_endpoint}?dep_iata={airport}&api_key={self.api_key}"
+        if airline:
+            url += f"&airline={airline}"
 
-    def check_flights(self, airport: str, airline: str):
+        response = requests.get(url)
+
+        if response.status_code != 200:
+            raise Exception(f"Request failed with status {response.status_code}")
+
+        try:
+            return response.json()
+        except json.decoder.JSONDecodeError:
+            raise Exception("Invalid JSON response")
+
+    def check_flights(self, airport: str):
         current_hour = datetime.now().hour
-        opening_hour, closing_hour = self.airport_hours[airport]
+        opening_hour, closing_hour = self.airport_hours.get(airport, (0, 0))
         if opening_hour <= current_hour < closing_hour:
-            flight_infos = self.get_flight_info(airport, airline)
+            if self.airlines == "all":
+                flight_infos = self.get_flight_info(airport)
+            else:
+                flight_infos = [info for airline in self.airlines for info in self.get_flight_info(airport, airline)]
             for flight_info in flight_infos:
                 dep_time = datetime.strptime(flight_info["dep_time"], "%Y-%m-%d %H:%M")
                 dep_delayed = int(flight_info["dep_delayed"])
@@ -73,7 +76,7 @@ class FlightChecker:
                         self.notify_plugin("Cancelled", flight_info)
 
     def notify_plugin(self, status, flight_info):
-        # Method to notify a plugin, it's implementation depends on your specific needs.
+        # Method to notify a plugin, its implementation depends on your specific needs.
         pass
 
 # Initialize the FlightChecker
@@ -95,36 +98,50 @@ dag = DAG(
     catchup=False
 )
 
+def discord_setup():
+    print("Setting up the job on Discord...")
+    api_url = os.getenv("API_URL")
+    print(f"API_URL: {api_url}")
+
+def check_flights():
+    for airport in flight_checker.airports:
+        flight_checker.check_flights(airport)
+
+def check_weather_faults():
+    print("Checking weather faults...")
+
+def activate_campaign_or_ticketing():
+    print("Activating campaign or ticketing...")
+
 # Task 1: Setting up the Job on Discord using the ENV File Form
 discord_setup_task = PythonOperator(
     task_id='discord_setup_task',
-    python_callable=lambda: print("Setting up the job on Discord..."),
+    python_callable=discord_setup,
     dag=dag,
 )
 
 # Task 2: Flight Checking
 flight_checking_task = PythonOperator(
     task_id='flight_checking_task',
-    python_callable=lambda: [flight_checker.check_flights(airport, airline) for airport in flight_checker.airports for airline in flight_checker.airlines],
+    python_callable=check_flights,
     dag=dag,
 )
 
 # Task 3: Weather Fault Validation
-# Here we need to replace this with actual implementation
 weather_fault_validation_task = PythonOperator(
     task_id='weather_fault_validation_task',
-    python_callable=lambda: print("Checking weather faults..."),
+    python_callable=check_weather_faults,
     dag=dag,
 )
 
 # Task 4: Ticketing or Campaign Activation
-# Here we need to replace this with actual implementation
 ticketing_or_campaign_activation_task = PythonOperator(
     task_id='ticketing_or_campaign_activation_task',
-    python_callable=lambda: print("Activating campaign or ticketing..."),
+    python_callable=activate_campaign_or_ticketing,
     dag=dag,
 )
 
 # Define the dependencies between the tasks in the DAG
 discord_setup_task >> flight_checking_task >> weather_fault_validation_task >> ticketing_or_campaign_activation_task
+
 
