@@ -11,10 +11,10 @@ import time
 
 load_dotenv()
 
-
 class FlightChecker:
     def __init__(self):
         try:
+            # Load environment variables
             self.api_key = os.getenv("FLIGHTS_API_KEY")
             self.airports = os.getenv("AIRPORTS")
             self.airlines = os.getenv("AIRLINES")
@@ -127,38 +127,40 @@ class FlightChecker:
                             continue  # Skip already processed delays
 
                         logging.info(f"Flight {flight_iata} is delayed for airport {airport}.")
-                        self.notify_plugin("Delayed", flight_info, airport=airport, flight_iata=flight_iata)
+                        context['ti'].xcom_push(key='flight_info', value=flight_info)
+                        break  # Exit the loop after processing the first delayed flight
 
-                        # Update last delay print time
-                        if airport in self.last_delay_print_time:
-                            self.last_delay_print_time[airport].append(flight_iata)
-                        else:
-                            self.last_delay_print_time[airport] = [flight_iata]
-
-                        # Only acknowledge a cancelled flight if a delay has been printed for the same airport
-                        if status == "cancelled":
-                            time_since_last_delay = (
-                                    datetime.now() - self.last_delay_print_time[airport][-1]).total_seconds() / 60
-                            if self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
-                                logging.info(f"Flight {flight_iata} is cancelled for airport {airport}.")
-                                self.notify_plugin("Cancelled", flight_info, airport=airport, flight_iata=flight_iata)
         except Exception as e:
             logging.error(f"Error analyzing delays: {str(e)}")
             raise
 
-    def notify_plugin(self, status, flight_info, airport=None, flight_iata=None):
-        """
-        Notifies a plugin or external service about a flight status change.
-        Customize this method to implement the desired notification functionality.
-        Args:
-            status (str): The flight status (e.g., "Delayed", "Cancelled")
-            flight_info (dict): Information about the flight
-            airport (str): The airport code
-            flight_iata (str): The flight IATA code
-        """
-        # Example implementation: Log the notification details
-        logging.info(f"Notifying plugin: Status='{status}', Flight Info='{flight_info}', Airport='{airport}', Flight IATA='{flight_iata}'")
+    def notify_plugin(self, context):
+        flight_info = context['ti'].xcom_pull(key='flight_info')
+        
+        # Prepare the data for the API request
+        data = {
+            'flight_info': flight_info
+        }
 
+        try:
+            # Make the API request to the AutoGPT app
+            response = requests.post('http://autogpt-app/api/analyze-flight', json=data)
+            response.raise_for_status()
+
+            # Process the analysis result
+            analysis_result = response.json()
+            if analysis_result == 'Yes':
+                # Perform additional actions for a positive analysis result
+                logging.info("AutoGPT analysis result: Yes")
+            elif analysis_result == 'No':
+                # Perform additional actions for a negative analysis result
+                logging.info("AutoGPT analysis result: No")
+            else:
+                # Handle unrecognized analysis result
+                logging.warning("Unrecognized AutoGPT analysis result")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to communicate with the AutoGPT app: {str(e)}")
+            raise
 
 default_args = {
     'start_date': datetime(2023, 5, 21),
@@ -189,9 +191,14 @@ with DAG(
         dag=dag,
     )
 
-    load_flight_data_task >> analyze_delays_task
+    notify_plugin_task = PythonOperator(
+        task_id='notify_plugin_task',
+        python_callable=flight_checker.notify_plugin,
+        provide_context=True,
+        dag=dag,
+    )
 
-
+    load_flight_data_task >> analyze_delays_task >> notify_plugin_task
 
 
 
