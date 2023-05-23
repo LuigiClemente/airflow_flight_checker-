@@ -1,4 +1,3 @@
-# Import required modules
 import os
 import requests
 import json
@@ -6,281 +5,191 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
+from airflow.models import XCom
+import logging
+import time
 
-# Load environment variables from the .env file
 load_dotenv()
+
 
 class FlightChecker:
     def __init__(self):
-        # Retrieve the necessary variables from the environment
-        self.api_key = os.getenv("FLIGHTS_API_KEY")
-        self.airports = os.getenv("AIRPORTS").split(",")
-        self.airlines = os.getenv("AIRLINES")
-        if self.airlines != "all":
-            self.airlines = self.airlines.split(",")
-        self.check_interval = int(os.getenv("CHECK_INTERVAL", "60")) * 60
-        self.delay_threshold = int(os.getenv("DELAY_THRESHOLD", "0"))
-        self.time_to_departure_threshold = int(os.getenv("TIME_TO_DEPARTURE_THRESHOLD", "0"))
-        self.cancelled_flight_time_window_start = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_START", "0"))
-        self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END", "0"))
-        self.api_host = os.getenv("API_HOST")
-        self.api_endpoint = os.getenv("API_ENDPOINT")
-        self.env_weather = os.getenv("ENV_WEATHER").split(",")
-
-        # Define opening and closing hours for each airport
-        self.airport_hours = {
-            "BCN": (6, 23),
-            "AMS": (3, 23)
-        }
-
-        self.last_delay_print_time = {}  # Stores the last delay print time for each airport
-
-    def get_flight_info(self, airport: str, airline: str = ""):
-        # Construct the URL with query parameters
-        url = f"{self.api_host}/api/v9/{self.api_endpoint}?dep_iata={airport}&api_key={self.api_key}"
-        if airline:
-            url += f"&airline={airline}"
-
-        print(f"Final URL is -> {url}")
-
-        #payload = {'dep_iata' : 'BCN', 'api_key' : '5ae65766-97cd-4c28-9c01-284f43966b10'}
-
-        response = requests.get(url) #, headers = payload)
-
-        print(f'Response in JSON -> {response.json()}')
-
-        print(f"Status Code for response is -> {response.status_code}")
-
-        if response.status_code != 200:
-            raise Exception(f"Request failed with status {response.status_code}")
-
         try:
-            return response.json()
-        except json.decoder.JSONDecodeError:
-            raise Exception("Invalid JSON response")
+            self.api_key = os.getenv("FLIGHTS_API_KEY")
+            self.airports = os.getenv("AIRPORTS")
+            self.airlines = os.getenv("AIRLINES")
+            self.check_interval = int(os.getenv("CHECK_INTERVAL", "60")) * 60
+            self.delay_threshold = int(os.getenv("DELAY_THRESHOLD", "0"))
+            self.time_to_departure_threshold = int(os.getenv("TIME_TO_DEPARTURE_THRESHOLD", "0"))
+            self.cancelled_flight_time_window_start = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_START", "0"))
+            self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END", "0"))
+            self.api_host = "https://airlabs.co/api/v9"
+            self.api_endpoint = "schedules"
+            self.airport_hours = self.parse_airport_hours(os.getenv("AIRPORT_HOURS", ""))
+            self.last_delay_print_time = {}  # Stores the last delay print time for each airport
 
-    def check_flights(self, airport: str):
-        current_hour = datetime.now().hour
-        opening_hour, closing_hour = self.airport_hours.get(airport, (0, 0))
-        if opening_hour <= current_hour < closing_hour:
-            if self.airlines == "all":
-                flight_infos = self.get_flight_info(airport)
-            else:
-                flight_infos = [info for airline in self.airlines for info in self.get_flight_info(airport, airline)]
-            for flight_info in flight_infos:
-                print(type(flight_info))
-                print(flight_info)
-                if "dep_time" in flight_info and "dep_delayed" in flight_info and "status" in flight_info:
-                    dep_time = datetime.strptime(flight_info["dep_time"], "%Y-%m-%d %H:%M")
-                    dep_delayed = int(flight_info["dep_delayed"])
-                    status = flight_info["status"]
-                    if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(hours=self.time_to_departure_threshold):
-                        print(f"Flight {flight_info['flight_iata']} is delayed.")
-                        self.last_delay_print_time[airport] = datetime.now()
-                        self.notify_plugin("Delayed", flight_info)
+            self.validate_environment_variables()
+        except Exception as e:
+            logging.error(f"Error initializing FlightChecker: {str(e)}")
+            raise
 
-                    # Only acknowledge a cancelled flight if a delay has been printed for the same airport
-                    if airport in self.last_delay_print_time:
-                        time_since_last_delay = (datetime.now() - self.last_delay_print_time[airport]).total_seconds() / 60
-                        if status == "cancelled" and self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
-                            print(f"Flight {flight_info['flight_iata']} is cancelled.")
-                            self.notify_plugin("Cancelled", flight_info)
-                else:
-                    print(f"Missing key(s) in flight info for flight {flight_info.get('flight_iata', 'unknown')}. Skipping...")
-
-    def notify_plugin(self, status, flight_info):
-        # Method to notify a plugin, its implementation depends on your specific needs.
-        pass
-
-# Initialize the FlightChecker
-flight_checker = FlightChecker()
-
-# Define the default arguments for the tasks in the DAG.
-default_args = {
-    'start_date': datetime(2023, 5, 21),
-    'retries': 1,
-    'retry_delay': timedelta(minutes=1)
-}
-
-# Initialize the DAG
-dag = DAG(
-    'flight_checker',
-    default_args=default_args,
-    description='Flight Checker DAG',
-    schedule_interval=timedelta(minutes=1),
-    catchup=False
-)
-
-def check_flights():
-    for airport in flight_checker.airports:
-        flight_checker.check_flights(airport)
-
-# Task: Flight Checking
-flight_checking_task = PythonOperator(
-    task_id='flight_checking_task',
-    python_callable=check_flights,
-    dag=dag,
-)
-
-# Define the dependencies between the tasks in the DAG
-flight_checking_task
-
-
-
-
-
-
-//import os
-import requests
-import json
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from airflow import DAG
-from airflow.operators.python_operator import PythonOperator
-
-# Load environment variables from the .env file
-load_dotenv()
-
-class FlightChecker:
-    def __init__(self):
-        # Retrieve the necessary variables from the environment
-        self.api_key = os.getenv("FLIGHTS_API_KEY")
-        self.airports = os.getenv("AIRPORTS").split(",")
-        self.airlines = os.getenv("AIRLINES")
-        if self.airlines != "all":
-            self.airlines = self.airlines.split(",")
-        self.check_interval = int(os.getenv("CHECK_INTERVAL", "60")) * 60
-        self.delay_threshold = int(os.getenv("DELAY_THRESHOLD", "0"))
-        self.time_to_departure_threshold = int(os.getenv("TIME_TO_DEPARTURE_THRESHOLD", "0"))
-        self.cancelled_flight_time_window_start = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_START", "0"))
-        self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END", "0"))
-        self.api_host = os.getenv("API_HOST")
-        self.api_endpoint = os.getenv("API_ENDPOINT")
-        self.env_weather = os.getenv("ENV_WEATHER").split(",")
-
-        # Parse airport hours from environment variable
-        self.airport_hours = self.parse_airport_hours(os.getenv("AIRPORT_HOURS"))
-
-        self.last_delay_print_time = {}  # Stores the last delay print time for each airport
+    def validate_environment_variables(self):
+        """
+        Validates the presence and validity of required environment variables.
+        Raises a ValueError if any of the required variables are missing or empty.
+        """
+        required_variables = [
+            "FLIGHTS_API_KEY", "AIRPORTS", "AIRLINES", "CHECK_INTERVAL", "DELAY_THRESHOLD",
+            "TIME_TO_DEPARTURE_THRESHOLD", "CANCELLED_FLIGHT_TIME_WINDOW_START",
+            "CANCELLED_FLIGHT_TIME_WINDOW_END", "AIRPORT_HOURS"
+        ]
+        for var in required_variables:
+            if not os.getenv(var):
+                raise ValueError(f"Environment variable {var} is missing or empty")
 
     def parse_airport_hours(self, env_str):
         """
-        Parses the environment variable for the airport hours.
-
-        The environment variable is expected to be a string in the following format:
-        'AIRPORT1:OPEN1-CLOSE1,AIRPORT2:OPEN2-CLOSE2,...'
+        Parses the environment variable string for airport hours.
+        The format is 'AIRPORT1:OPEN1-CLOSE1,AIRPORT2:OPEN2-CLOSE2,...'
         For example: 'BCN:6-23,AMS:3-23'
-
         Args:
-            env_str (str): the environment variable string
-
+            env_str (str): The environment variable string
         Returns:
-            dict: a dictionary with the airport codes as keys and tuples with open and close hours as values
+            dict: A dictionary with airport codes as keys and tuples with open and close hours as values
         """
         airport_hours = {}
         pairs = env_str.split(',')
         for pair in pairs:
+            if ':' not in pair:
+                continue
             airport, hours = pair.split(':')
             open_hour, close_hour = map(int, hours.split('-'))
             airport_hours[airport] = (open_hour, close_hour)
-        
         return airport_hours
 
-        self.last_delay_print_time = {}  # Stores the last delay print time for each airport
-
-    def get_flight_info(self, airport: str, airline: str = ""):
-        # Construct the URL with query parameters
-        url = f"{self.api_host}/api/v9/{self.api_endpoint}?dep_iata={airport}&api_key={self.api_key}"
-        if airline:
-            url += f"&airline={airline}"
-
-        print(f"Final URL is -> {url}")
-
-        #payload = {'dep_iata' : 'BCN', 'api_key' : '5ae65766-97cd-4c28-9c01-284f43966b10'}
-
-        response = requests.get(url) #, headers = payload)
-
-        print(f'Response in JSON -> {response.json()}')
-
-        print(f"Status Code for response is -> {response.status_code}")
-
-        if response.status_code != 200:
-            raise Exception(f"Request failed with status {response.status_code}")
-
+    def load_flight_data(self, context):
+        """
+        Loads flight data from the API and stores it in XCom.
+        Retries the API request with exponential backoff in case of failures.
+        """
         try:
-            return response.json()
-        except json.decoder.JSONDecodeError:
-            raise Exception("Invalid JSON response")
-
-    def check_flights(self, airport: str):
-        current_hour = datetime.now().hour
-        opening_hour, closing_hour = self.airport_hours.get(airport, (0, 0))
-        if opening_hour <= current_hour < closing_hour:
-            if self.airlines == "all":
-                flight_infos = self.get_flight_info(airport)
+            url = f"{self.api_host}/{self.api_endpoint}?dep_iata={self.airports}&api_key={self.api_key}"
+            retry_count = 0
+            max_retries = 5
+            while retry_count < max_retries:
+                try:
+                    response = requests.get(url)
+                    response.raise_for_status()
+                    flight_data = response.json()
+                    # Store flight data in XCom
+                    context['ti'].xcom_push(key='flight_data', value=flight_data)
+                    break
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Failed to load flight data: {str(e)}")
+                    logging.info(f"Retrying in {2 ** retry_count} seconds...")
+                    time.sleep(2 ** retry_count)
+                    retry_count += 1
             else:
-                flight_infos = [info for airline in self.airlines for info in self.get_flight_info(airport, airline)]
-            for flight_info in flight_infos:
-                print(type(flight_info))
-                print(flight_info)
-                import logging
+                raise RuntimeError("Failed to load flight data after multiple retries")
+        except Exception as e:
+            logging.error(f"Error loading flight data: {str(e)}")
+            raise
 
-                logging.info(f'Flight info is as -> {flight_info}')
-                if "dep_time" in flight_info and "dep_delayed" in flight_info and "status" in flight_info:
-                    dep_time = datetime.strptime(flight_info["dep_time"], "%Y-%m-%d %H:%M")
-                    dep_delayed = int(flight_info["dep_delayed"])
-                    status = flight_info["status"]
-                    if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(hours=self.time_to_departure_threshold):
-                        print(f"Flight {flight_info['flight_iata']} is delayed.")
-                        self.last_delay_print_time[airport] = datetime.now()
-                        self.notify_plugin("Delayed", flight_info)
+    def analyze_delays(self, context):
+        """
+        Analyzes flight delays for each airport and performs appropriate actions.
+        """
+        try:
+            # Retrieve flight data from XCom
+            flight_data = context['ti'].xcom_pull(key='flight_data')
+            if flight_data is None:
+                logging.warning("Flight data is not loaded")
+                return
 
-                    # Only acknowledge a cancelled flight if a delay has been printed for the same airport
-                    if airport in self.last_delay_print_time:
-                        time_since_last_delay = (datetime.now() - self.last_delay_print_time[airport]).total_seconds() / 60
-                        if status == "cancelled" and self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
-                            print(f"Flight {flight_info['flight_iata']} is cancelled.")
-                            self.notify_plugin("Cancelled", flight_info)
-                else:
-                    print(f"Missing key(s) in flight info for flight {flight_info.get('flight_iata', 'unknown')}. Skipping...")
+            for airport in self.airports.split(","):
+                current_hour = datetime.now().hour
+                opening_hour, closing_hour = self.airport_hours.get(airport, (0, 0))
+                if opening_hour <= current_hour < closing_hour:
+                    delayed_flights = []
+                    for flight in flight_data:
+                        if flight['dep_iata'] == airport and (
+                                self.airlines == 'all' or flight['airline'] in self.airlines.split(",")):
+                            dep_time = datetime.strptime(flight["dep_time"], "%Y-%m-%d %H:%M")
+                            dep_delayed = int(flight["dep_delayed"])
+                            status = flight["status"]
+                            if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(
+                                    hours=self.time_to_departure_threshold):
+                                delayed_flights.append(flight)
 
-    def notify_plugin(self, status, flight_info):
-        # Method to notify a plugin, its implementation depends on your specific needs.
-        pass
+                    for flight_info in delayed_flights:
+                        flight_iata = flight_info['flight_iata']
+                        if airport in self.last_delay_print_time and flight_iata in self.last_delay_print_time[airport]:
+                            continue  # Skip already processed delays
 
-# Initialize the FlightChecker
-flight_checker = FlightChecker()
+                        logging.info(f"Flight {flight_iata} is delayed for airport {airport}.")
+                        self.notify_plugin("Delayed", flight_info, airport=airport, flight_iata=flight_iata)
 
-# Define the default arguments for the tasks in the DAG.
+                        # Update last delay print time
+                        if airport in self.last_delay_print_time:
+                            self.last_delay_print_time[airport].append(flight_iata)
+                        else:
+                            self.last_delay_print_time[airport] = [flight_iata]
+
+                        # Only acknowledge a cancelled flight if a delay has been printed for the same airport
+                        if status == "cancelled":
+                            time_since_last_delay = (
+                                    datetime.now() - self.last_delay_print_time[airport][-1]).total_seconds() / 60
+                            if self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
+                                logging.info(f"Flight {flight_iata} is cancelled for airport {airport}.")
+                                self.notify_plugin("Cancelled", flight_info, airport=airport, flight_iata=flight_iata)
+        except Exception as e:
+            logging.error(f"Error analyzing delays: {str(e)}")
+            raise
+
+    def notify_plugin(self, status, flight_info, airport=None, flight_iata=None):
+        """
+        Notifies a plugin or external service about a flight status change.
+        Customize this method to implement the desired notification functionality.
+        Args:
+            status (str): The flight status (e.g., "Delayed", "Cancelled")
+            flight_info (dict): Information about the flight
+            airport (str): The airport code
+            flight_iata (str): The flight IATA code
+        """
+        # Example implementation: Log the notification details
+        logging.info(f"Notifying plugin: Status='{status}', Flight Info='{flight_info}', Airport='{airport}', Flight IATA='{flight_iata}'")
+
+
 default_args = {
     'start_date': datetime(2023, 5, 21),
     'retries': 1,
     'retry_delay': timedelta(minutes=1)
 }
 
-# Initialize the DAG
-dag = DAG(
-    'flight_checker',
-    default_args=default_args,
-    description='Flight Checker DAG',
-    schedule_interval=timedelta(minutes=1),
-    catchup=False
-)
+with DAG(
+        'flight_checker',
+        default_args=default_args,
+        description='Flight Checker DAG',
+        schedule_interval=timedelta(minutes=1),
+        catchup=False
+) as dag:
+    flight_checker = FlightChecker()
 
-def check_flights():
-    for airport in flight_checker.airports:
-        flight_checker.check_flights(airport)
+    load_flight_data_task = PythonOperator(
+        task_id='load_flight_data_task',
+        python_callable=flight_checker.load_flight_data,
+        provide_context=True,
+        dag=dag,
+    )
 
-# Task: Flight Checking
-flight_checking_task = PythonOperator(
-    task_id='flight_checking_task',
-    python_callable=check_flights,
-    dag=dag,
-)
+    analyze_delays_task = PythonOperator(
+        task_id='analyze_delays_task',
+        python_callable=flight_checker.analyze_delays,
+        provide_context=True,
+        dag=dag,
+    )
 
-# Define the dependencies between the tasks in the DAG
-flight_checking_task
-
+    load_flight_data_task >> analyze_delays_task
 
 
 
